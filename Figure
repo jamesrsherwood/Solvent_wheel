@@ -1,0 +1,369 @@
+# Code derived from https://python-graph-gallery.com/circular-barplot-with-groups/
+
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.ticker import FixedLocator, FixedFormatter
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatch
+from logging import logProcesses
+import pandas as pd
+
+
+
+#------------Data collection------------
+
+# Raw physical property data
+solventsnames= ["Cyrene", "GVL", "DMF", "NMP", "2-MeTHF", "THF", "DCM"] * 4 + ["Cyrene", "GVL", "DMF", "NMP", "2-MeTHF", "THF"] + ["Cyrene", "GVL", "DMF", "NMP", "2-MeTHF", "THF", "DCM"] * 2
+
+Cyrene_mp = -20 #max value
+MeTHF_mp = -20 #max value
+GVL_mp = -31
+THF_mp = -109
+DCM_mp = -95
+DMF_mp = -61
+NMP_mp =-24
+
+Cyrene_bp = 227
+MeTHF_bp = 78
+GVL_bp = 207
+THF_bp = 66
+DCM_bp = 40
+DMF_bp = 153
+NMP_bp = 202
+
+Cyrene_sg = 1.25
+MeTHF_sg = 0.86
+GVL_sg = 1.05
+THF_sg = 0.88
+DCM_sg = 1.33
+DMF_sg = 0.95
+NMP_sg = 1.03
+
+Cyrene_logP = -1.52
+MeTHF_logP = 1.1
+GVL_logP = -0.20
+THF_logP = 0.46
+DCM_logP = 1.25
+DMF_logP = -0.74
+NMP_logP = -0.46
+
+Cyrene_ait = 296
+MeTHF_ait = 260
+GVL_ait = 402
+THF_ait = 212
+DCM_ait = 605
+DMF_ait = 445
+NMP_ait = 287
+
+Cyrene_fp = 108
+MeTHF_fp = -10
+GVL_fp = 97
+THF_fp = -15
+DCM_fp = 200 #decoy number (does not flash)
+DMF_fp = 58
+NMP_fp = 95
+
+Cyrene_v = 13.8
+MeTHF_v = 0.49
+GVL_v = 2.0
+THF_v = 0.55
+DCM_v = 0.44
+DMF_v = 0.82
+NMP_v = 1.8
+
+Cyrene_ld50 = 2000
+MeTHF_ld50 = 300
+GVL_ld50 = 9249
+THF_ld50 = 1650
+DCM_ld50 = 2000
+DMF_ld50 = 3010
+NMP_ld50 = 2000
+
+Cyrene_st = 34
+MeTHF_st = 24.6
+GVL_st = 30
+THF_st = 28
+DCM_st = 28
+DMF_st = 35
+NMP_st = 41
+
+# Primary datasets
+melting_point = [Cyrene_mp,GVL_mp,DMF_mp,NMP_mp,MeTHF_mp,THF_mp,DCM_mp]
+boiling_point = [Cyrene_bp,GVL_bp,DMF_bp,NMP_bp,MeTHF_bp,THF_bp,DCM_bp]
+density = [Cyrene_sg,GVL_sg,DMF_sg,NMP_sg,MeTHF_sg,THF_sg,DCM_sg]
+logP = [Cyrene_logP,GVL_logP,DMF_logP,NMP_logP,MeTHF_logP,THF_logP,DCM_logP]
+autoignition = [Cyrene_ait,GVL_ait,DMF_ait,NMP_ait,MeTHF_ait,THF_ait,DCM_ait]
+flash_point = [Cyrene_fp,GVL_fp,DMF_fp,NMP_fp,MeTHF_fp,THF_fp] #ignoring DCM (does not flash)
+viscosity = [Cyrene_v,GVL_v,DMF_v,NMP_v,MeTHF_v,THF_v,DCM_v]
+ld50 = [Cyrene_ld50,GVL_ld50,DMF_ld50,NMP_ld50,MeTHF_ld50,THF_ld50,DCM_ld50]
+surface_tension = [Cyrene_st,GVL_st,DMF_st,NMP_st,MeTHF_st,THF_st,DCM_st]
+
+# Normalisation (BP max is VOC limit of 250 C)
+boiling_point_norm = (boiling_point - np.amin(boiling_point))/(250-np.amin(boiling_point))
+density_norm = (density - np.amin(density))/(np.amax(density)-np.amin(density))
+logP_norm = (logP - np.amin(logP))/(np.amax(logP)-np.amin(logP))
+ait_norm = (autoignition - np.amin(autoignition))/(np.amax(autoignition)-np.amin(autoignition))
+fp_norm = (flash_point - np.amin(flash_point))/(np.amax(flash_point)-np.amin(flash_point))
+viscosity_norm = (viscosity - np.amin(viscosity))/(np.amax(viscosity)-np.amin(viscosity))
+surface_tension_norm = (surface_tension - np.amin(surface_tension))/(np.amax(surface_tension)-np.amin(surface_tension))
+len(boiling_point_norm) + len(density_norm) + len(logP_norm) + len(ait_norm) + len(fp_norm) + len(viscosity_norm) + len(surface_tension_norm)
+
+# Normalised data lists
+fullproparray_norm = boiling_point_norm, density_norm, logP_norm, ait_norm, fp_norm, viscosity_norm, surface_tension_norm
+fullproplist_norm = *boiling_point_norm, *density_norm, *logP_norm, *ait_norm, *fp_norm, *viscosity_norm, *surface_tension_norm
+fullproplist_norm10to110 = [(i * 100)+10 for i in fullproplist_norm]
+
+df = pd.DataFrame({
+    "name": solventsnames,
+    "value": fullproplist_norm10to110,
+    "group": ["Boiling point"] * 7 + ["Density"] * 7 + ["logP"] * 7 + ["Autoignition"] * 7 + ["Flash point"] * 6 + ["Viscosity"] * 7 + ["Surface tension"] * 7
+})
+
+
+#------------Chart set-up------------
+
+def get_label_rotation(angle, offset):
+    # Rotation specified in degrees
+    rotation = np.rad2deg(angle + offset)
+    if angle <= np.pi:
+        alignment = "right"
+        rotation = rotation + 180
+    else:
+        alignment = "left"
+    return rotation, alignment
+def add_labels(angles, values, labels, offset, ax):
+
+    # This is the space between the end of the bar and the label
+    padding = 4
+
+    # Iterate over angles, values, and labels, to add all of them
+    for angle, value, label, in zip(angles, values, labels):
+        angle = angle
+
+        # Obtain text rotation and alignment
+        rotation, alignment = get_label_rotation(angle, offset)
+
+        # Text
+        ax.text(
+            x=angle,
+            y=value + padding,
+            s=label,
+            ha=alignment,
+            va="center",
+            rotation=rotation,
+            rotation_mode="anchor"
+        )
+
+VALUES = df["value"].values
+LABELS = df["name"].values
+
+# Determine the width of each bar
+WIDTH = 2 * np.pi / len(VALUES)
+
+# Determine position of first bar
+OFFSET = np.pi / 3.06
+
+# Grab the group values
+GROUP = df["group"].values
+
+# Add three empty bars to the end of each group to create space
+PAD = 3
+ANGLES_N = len(VALUES) + PAD * len(np.unique(GROUP))
+ANGLES = np.linspace(0, 2 * np.pi, num=ANGLES_N, endpoint=False)
+WIDTH = (2 * np.pi) / len(ANGLES)
+
+# State the size of each group
+GROUPS_SIZE = [7,7,7,7,6,7,7]
+
+# Obtain the right indexes
+offset = 0
+IDXS = []
+for size in GROUPS_SIZE:
+    IDXS += list(range(offset + PAD, offset + size + PAD))
+    offset += size + PAD
+
+# Figure layout
+fig, ax = plt.subplots(figsize=(20, 10), subplot_kw={"projection": "polar"})
+
+ax.set_theta_offset(OFFSET)
+ax.set_ylim(-50, 110)
+ax.set_frame_on(False)
+ax.xaxis.grid(False)
+ax.yaxis.grid(False)
+ax.set_xticks([])
+ax.set_yticks([])
+
+# Use different colours for each group (auto colour by group in 2 line below) COLOURS variable (with a U) used instead
+bp_bio_c = "#00008B"
+sg_bio_c = "#FFA500"
+logP_bio_c = "#008000"
+ait_bio_c = "#DC143C"
+fp_bio_c = "#FF00FF"
+visc_bio_c = "#FF4500"
+st_bio_c = "#A52A2A"
+bp_petro_c = "#ADD8E6"
+sg_petro_c = "#DAA520"
+logP_petro_c = "#808000"
+ait_petro_c = "#800000"
+fp_petro_c = "#800080"
+visc_petro_c = "#FA8072"
+st_petro_c = "#A0522D"
+#backslash lets me continue long lines of code over multiple lines
+COLOURS = [bp_bio_c] * 2 + [bp_petro_c] * 2 + [bp_bio_c] * 1 + [bp_petro_c] * 2\
++[sg_bio_c] * 2 + [sg_petro_c] * 2 + [sg_bio_c] * 1 + [sg_petro_c] * 2\
++[logP_bio_c] * 2 + [logP_petro_c] * 2 + [logP_bio_c] * 1 + [logP_petro_c] * 2\
++[ait_bio_c] * 2 + [ait_petro_c] * 2 + [ait_bio_c] * 1 + [ait_petro_c] * 2\
++[fp_bio_c] * 2 + [fp_petro_c] * 2 + [fp_bio_c] * 1 + [fp_petro_c] * 1\
++[visc_bio_c] * 2 + [visc_petro_c] * 2 + [visc_bio_c] * 1 + [visc_petro_c] * 2\
++[st_bio_c] * 2 + [st_petro_c] * 2 + [st_bio_c] * 1 + [st_petro_c] * 2
+
+# Add the bars - the `ANGLES[IDXS]` function is used to drop some angles that leave the space between bars
+ax.bar(
+    ANGLES[IDXS], VALUES, width=WIDTH, color=COLOURS,
+    edgecolor="white", linewidth=2
+)
+
+# Add labels
+add_labels(ANGLES[IDXS], VALUES, LABELS, OFFSET, ax)
+
+# Function to convert to superscript
+def get_super(x):
+    normal = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-=()"
+    super_s = "ᴬᴮᶜᴰᴱᶠᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾQᴿˢᵀᵁⱽᵂˣʸᶻᵃᵇᶜᵈᵉᶠᵍʰᶦʲᵏˡᵐⁿᵒᵖ۹ʳˢᵗᵘᵛʷˣʸᶻ⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾"
+    res = x.maketrans(''.join(normal), ''.join(super_s))
+    return x.translate(res)
+
+ss = get_super('-1')
+
+offset = 0
+for group, size in zip(["BP /$^\circ$C", "SG", "logP", "AIP /$^\circ$C", "FP /$^\circ$C", "$\mu$ /cP", "ST"], GROUPS_SIZE):
+    # Add line below bars
+    x1 = np.linspace(ANGLES[offset + PAD], ANGLES[offset + size + PAD - 1], num=50)
+    ax.plot(x1, [-5] * 50, color="#333333")
+
+    # Add text to indicate group
+    ax.text(
+        np.mean(x1), -14, group, color="black", fontsize=10,
+        ha="center", va="center"
+    )
+
+    # Add reference lines at 10, 30, 50, 70, 90, 110 because normalised 10 to 110
+    x2 = np.linspace(ANGLES[offset], ANGLES[offset + PAD - 1], num=50)
+    ax.plot(x2, [10] * 50, color="#bebebe", lw=0.5)
+    ax.plot(x2, [30] * 50, color="#bebebe", lw=0.5)
+    ax.plot(x2, [50] * 50, color="#bebebe", lw=0.5)
+    ax.plot(x2, [70] * 50, color="#bebebe", lw=0.5)
+    ax.plot(x2, [90] * 50, color="#bebebe", lw=0.5)
+    #dont need this one now ---> ax.plot(x2, [110] * 50, color="#bebebe", lw=0.5)
+
+    #outside border lines (by group)
+    x3 = np.linspace(0.24, 1.07, num=200)
+    ax.plot(x3, [98] * 200, color="#00008B", lw=0.5)
+
+    x4 = np.linspace(1.14, 2, num=200)
+    ax.plot(x4, [109] * 200, color="#FFA500", lw=0.5)
+
+    x5 = np.linspace(2.08, 2.94, num=200)
+    ax.plot(x5, [109] * 200, color="#008000", lw=0.5)
+
+    x6 = np.linspace(3.02, 3.83, num=200)
+    ax.plot(x6, [109] * 200, color="#DC143C", lw=0.5)
+
+    x7 = np.linspace(3.9, 4.65, num=200)
+    ax.plot(x7, [109] * 200, color="#FF00FF", lw=0.5)
+
+    x8 = np.linspace(4.7, 5.55, num=200)
+    ax.plot(x8, [109] * 200, color="#FF4500", lw=0.5)
+
+    x9 = np.linspace(5.6, 6.46, num=200)
+    ax.plot(x9, [109] * 200, color="#A52A2A", lw=0.5)
+
+    offset += size + PAD
+
+#units
+ax.text(1.64,-20,"/g.mL" + ss, color="black",
+        rotation=0,ha='center',va='center')
+
+ax.text(-0.4,-26,"/dyne.cm" + ss, color="black",
+        rotation=0,ha='center',va='center')
+
+
+#annotating magnitude of properties
+label_position1=ax.get_rlabel_position()
+ax.text(np.radians(label_position1+35),ax.get_rmax()/1.08,np.amax(boiling_point), color="blue",
+        rotation=label_position1,ha='center',va='center')
+
+label_position2=ax.get_rlabel_position()
+ax.text(np.radians(label_position2+35),ax.get_rmax()/7,np.amin(boiling_point), color="blue",
+        rotation=label_position2,ha='center',va='center')
+
+
+ax.text(-10.65,115,np.amax(density), color="orange",
+        rotation=24.5 * np.pi,ha='center',va='center')
+
+ax.text(-10.65,15,np.amin(density), color="orange",
+        rotation=24.5 * np.pi,ha='center',va='center')
+
+
+ax.text(-22.3,115,np.amax(logP), color="green",
+        rotation=-14 * np.pi,ha='center',va='center')
+
+ax.text(-22.3,15,np.amin(logP), color="green",
+        rotation=-14 * np.pi,ha='center',va='center')
+
+
+ax.text(-14.3,115,np.amax(flash_point), color="purple",
+        rotation=14 * np.pi,ha='center',va='center')
+
+ax.text(-14.3,15,np.amin(flash_point), color="purple",
+        rotation=14 * np.pi,ha='center',va='center')
+
+
+ax.text(-12.5,115,np.amax(surface_tension), color="#A52A2A",
+        rotation=-10 * np.pi,ha='center',va='center')
+
+ax.text(-12.5,15,np.amin(surface_tension), color="#A52A2A",
+        rotation=-10 * np.pi,ha='center',va='center')
+
+
+ax.text(-19.7,115,np.amax(viscosity), color="brown",
+        rotation=-25 * np.pi,ha='center',va='center')
+
+ax.text(-19.7,15,np.amin(viscosity), color="brown",
+        rotation=-25 * np.pi,ha='center',va='center')
+
+
+ax.text(-15.12,115,np.amax(autoignition), color="red",
+        rotation=0 * np.pi,ha='center',va='center')
+
+ax.text(-15.12,15,np.amin(autoignition), color="red",
+        rotation=0 * np.pi,ha='center',va='center')
+
+
+#safety thresholds (FP 60, AIT 200, BP 250)
+ait_limit_norm10to110 = ((200 - np.amin(autoignition))/(np.amax(autoignition)-np.amin(autoignition))*100)+10
+fp_limit_norm10to110 = ((60 - np.amin(flash_point))/(np.amax(flash_point)-np.amin(flash_point))*100)+10
+VOC_limit_norm10to110 = ((250 - np.amin(boiling_point))/(np.amax(boiling_point)-np.amin(boiling_point))*100)+10
+
+ax.text(-15.12,2,200, weight='bold', color="red",
+        rotation=0 * np.pi,ha='center',va='center')
+
+ax.text(-14.3,77,60, weight='bold', color="purple",
+        rotation=14 * np.pi,ha='center',va='center')
+
+ax.text(1,115,250, weight='bold', color="blue",
+        rotation=7 * np.pi,ha='center',va='center')
+
+y6 = np.linspace(3.02, 3.83, num=200)
+ax.plot(y6, [ait_limit_norm10to110] * 200, color="#DC143C", lw=2.5)
+
+y7 = np.linspace(3.9, 4.65, num=200)
+ax.plot(y7, [fp_limit_norm10to110] * 200, color="#FF00FF", lw=2.5)
+
+y3 = np.linspace(0.24, 1.08, num=200)
+ax.plot(y3, [109] * 200, color="#00008B", lw=2.5)
+
+plt.savefig("solvent_property_wheel.png", dpi=600, bbox_inches="tight", pad_inches=0.2)
+
+plt.show()
